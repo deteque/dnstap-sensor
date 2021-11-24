@@ -29,5 +29,5 @@ The source code and sample configuration file are is available three ways - as a
 - Git: git clone https://github.com/deteque/dnstap-sensor.git
 
 # Installation Overview
-Begin by creating a directory that will be used to store the DNSTAP-SENSOR configuration file and socket:
+Begin by creating a directory that will be used to store the DNSTAP-SENSOR configuration file and socket:<br>
 mkdir -p /etc/dnstap
