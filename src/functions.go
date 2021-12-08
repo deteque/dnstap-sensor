@@ -67,12 +67,12 @@ func createENV() {
 	}
 
 	if Config.Socket == "" {
-		err = os.MkdirAll("/run/dnstap", 0755)
+		err = os.MkdirAll("/etc/dnstap", 0755)
 		if err != nil {
 			fmt.Println("Could not create socket directory:", err)
 			os.Exit(1)
 		}
-		Config.Socket = "/run/dnstap/dnstap.sock"
+		Config.Socket = "/etc/dnstap/dnstap.sock"
 	} else {
 		dir := filepath.Dir(Config.Socket)
 		err = os.MkdirAll(dir, 0755)

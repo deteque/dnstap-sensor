@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+  dnstap-sensor:
+    image: deteque/dnstap-sensor
+    volumes:
+      - /etc/dnstap/:/etc/dnstap/
+  bind:
+    image: deteque/bind-rpz
+    network_mode: host
+    volumes:
+      - /etc/dnstap/:/etc/dnstap/
+      - /etc/namedb/:/etc/namedb/

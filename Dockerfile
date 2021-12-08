@@ -1,7 +1,7 @@
 FROM debian:bullseye-slim
 LABEL maintainer="Deteque Support <support@deteque.com>"
-ENV GOLANG_VERSION "1.17.3"
-ENV BUILD_DATE "2021-11-23"
+ENV GOLANG_VERSION "1.17.4"
+ENV BUILD_DATE "2021-12-07.2"
 
 WORKDIR /tmp
 RUN mkdir /root/dnstap-sensor \
@@ -38,4 +38,4 @@ RUN wget https://go.dev/dl/go${GOLANG_VERSION}.linux-amd64.tar.gz \
 WORKDIR /root/dnstap-sensor
 RUN ./build.sh 
 
-ENTRYPOINT ["/root/dnstap-sensor/dnstap-sensor"]
+CMD ["/root/dnstap-sensor/dnstap-sensor"]
