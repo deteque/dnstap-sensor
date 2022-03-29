@@ -1,6 +1,6 @@
 module dev3.deteque.com/dnstap-sensor
 
-go 1.17
+go 1.18
 
 require (
 	github.com/farsightsec/golang-framestream v0.3.0
