@@ -1,4 +1,4 @@
-module dev3.deteque.com/dnstap-sensor
+module deteque.com/dnstap-sensor
 
 go 1.18
 
