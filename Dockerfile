@@ -1,7 +1,7 @@
 FROM debian:bullseye-slim
 LABEL maintainer="Deteque Support <support@deteque.com>"
-ENV GOLANG_VERSION "1.18.3"
-ENV BUILD_DATE "2022-07-03"
+ENV GOLANG_VERSION "1.18.4"
+ENV BUILD_DATE "2022-07-18"
 
 WORKDIR /tmp
 RUN mkdir /root/dnstap-sensor \
