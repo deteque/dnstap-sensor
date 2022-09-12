@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 
 	"github.com/farsightsec/golang-framestream"
-	"github.com/pelletier/go-toml"
+	"github.com/pelletier/go-toml/v2"
 )
 
 var wg sync.WaitGroup
