@@ -34,6 +34,7 @@ type ConfigFile struct {
 	Password string `json:"password"`
 	Socket string `json:"socket"`
 	Destination string `json:"destination"`
+	SrcIP string `json:"srcip"`
 	Retry_Delay time.Duration `json:"retry_delay"`
 	Flush_MS time.Duration `json:"flush_ms"`
 }
@@ -80,6 +81,14 @@ func createENV() {
 			fmt.Println("Could not create socket directory:", err)
 			os.Exit(1)
 		}
+	}
+	if Config.SrcIP != "" {
+                ip := net.ParseIP(Config.SrcIP)
+                if ip == nil {
+                        fmt.Println("Invalid srcip set!")
+                        fmt.Println(VERSION)
+                        os.Exit(1)
+                }
 	}
 
 	Config.Retry_Delay = time.Duration(5) * time.Second
@@ -215,11 +224,8 @@ func dial() {
 			time.Sleep(Config.Retry_Delay)
 			continue
 		}
-		tr := &http.Transport{
-			MaxIdleConnsPerHost: 1024,
-			TLSHandshakeTimeout: 0 * time.Second,
-		}
-		url.Client = &http.Client{Transport: tr}
+		tr := getTransport()
+		url.Client = &http.Client{Transport: &tr}
 		url.Path = uri
 		return
 	}
@@ -232,7 +238,9 @@ func tryConnect(hosts []string) (string, error) {
 			Config.Password,
 			collector,
 		)
-		resp, err := http.Get(uri)
+		tr := getTransport()
+		client := &http.Client{Transport: &tr}
+		resp, err := client.Get(uri)
 		if err != nil {
 			continue
 		}
@@ -243,6 +251,34 @@ func tryConnect(hosts []string) (string, error) {
 		}
 	}
 	return "", errors.New("Could not connect to any hosts")
+}
+
+func getTransport() (http.Transport) {
+	if Config.SrcIP == "" {
+		tr := http.Transport{
+			MaxIdleConnsPerHost: 1024,
+			TLSHandshakeTimeout: 0 * time.Second,
+		}
+		return tr
+	} else {
+		ip := net.ParseIP(Config.SrcIP)
+		if ip == nil {
+			fmt.Println("Invalid srcip set!")
+			fmt.Println(VERSION)
+			os.Exit(1)
+		}
+		addr := &net.TCPAddr{ip,0,""}
+		tr := http.Transport{
+			MaxIdleConnsPerHost: 1024,
+			TLSHandshakeTimeout: 0 * time.Second,
+			DialContext: (&net.Dialer{
+				LocalAddr: addr,
+			}).DialContext,
+		}
+		return tr
+
+	}
+
 }
 
 func getHosts() ([]string, error) {
