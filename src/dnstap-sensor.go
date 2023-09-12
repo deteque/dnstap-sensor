@@ -10,7 +10,7 @@ import (
 
 const (
 	CONFIG_FILE = "/etc/dnstap/sensor.conf"
-	VERSION = "dnstap-sensor VERSION: 20230717.1"
+	VERSION = "dnstap-sensor VERSION: 20230829.0"
 	KILOBYTE = 1024
 	BUFFER_SIZE = 128
 )
