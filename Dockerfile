@@ -1,7 +1,7 @@
 FROM debian:bookworm-slim
 LABEL maintainer="Deteque Support <support@deteque.com>"
-ENV GOLANG_VERSION "1.21.6"
-ENV BUILD_DATE "2024-01-10"
+ENV GOLANG_VERSION "1.22.1"
+ENV BUILD_DATE "2024-03-25"
 
 WORKDIR /tmp
 RUN mkdir /root/dnstap-sensor \
