@@ -6,7 +6,8 @@ import (
 	"net"
 	"time"
 	"net/http"
-	netUrl "net/url"
+	"net/url"
+	"log"
 	"encoding/base64"
 	"sync"
 	"io/ioutil"
@@ -20,23 +21,22 @@ import (
 )
 
 var wg sync.WaitGroup
-var wgHTTP sync.WaitGroup
 
-type URL struct {
+type HTTPClient struct {
 	Client *http.Client
 	Path string
 }
 
-var url URL
-
 type ConfigFile struct {
-	User string `json:"user"`
-	Password string `json:"password"`
-	Socket string `json:"socket"`
-	Destination string `json:"destination"`
-	SrcIP string `json:"srcip"`
-	Retry_Delay time.Duration `json:"retry_delay"`
-	Flush_MS time.Duration `json:"flush_ms"`
+	User string `toml:"user"`
+	Password string `toml:"password"`
+	ListenerType string `toml:"listener_type"`
+	ListenerEndpoint string `toml:"listener_endpoint"`
+	Socket string `toml:"socket"`
+	Destination string `toml:"destination"`
+	SrcIP string `toml:"srcip"`
+	Retry_Delay time.Duration `toml:"retry_delay"`
+	Flush_MS time.Duration `toml:"flush_ms"`
 }
 
 func createENV() {
@@ -67,28 +67,47 @@ func createENV() {
 		os.Exit(1)
 	}
 
-	if Config.Socket == "" {
-		err = os.MkdirAll("/etc/dnstap", 0755)
-		if err != nil {
-			fmt.Println("Could not create socket directory:", err)
-			os.Exit(1)
-		}
-		Config.Socket = "/etc/dnstap/dnstap.sock"
-	} else {
-		dir := filepath.Dir(Config.Socket)
-		err = os.MkdirAll(dir, 0755)
-		if err != nil {
-			fmt.Println("Could not create socket directory:", err)
-			os.Exit(1)
-		}
+	if Config.ListenerType == "" {
+		Config.ListenerType = "socket"
 	}
+	if Config.ListenerType == "socket" {
+		if Config.ListenerEndpoint == "" && Config.Socket == "" {
+			err = os.MkdirAll("/etc/dnstap", 0755)
+			if err != nil {
+				fmt.Println("Could not create socket directory:", err)
+				os.Exit(1)
+			}
+			Config.ListenerEndpoint = "/etc/dnstap/dnstap.sock"
+		}
+		if Config.ListenerEndpoint == "" && Config.Socket != "" {
+			Config.ListenerEndpoint = Config.Socket
+		}
+		if Config.ListenerEndpoint != "" {
+			dir := filepath.Dir(Config.Socket)
+			err = os.MkdirAll(dir, 0755)
+			if err != nil {
+				fmt.Println("Could not create socket directory:", err)
+				os.Exit(1)
+			}
+		}
+		
+	} else if Config.ListenerType == "tcp" {
+		if Config.ListenerEndpoint == "" {
+			Config.ListenerEndpoint = ":8053"
+		}
+	} else {
+		fmt.Println("Invalid listener_type set!")
+		fmt.Println(VERSION)
+		os.Exit(1)
+	}
+
 	if Config.SrcIP != "" {
-                ip := net.ParseIP(Config.SrcIP)
-                if ip == nil {
-                        fmt.Println("Invalid srcip set!")
-                        fmt.Println(VERSION)
-                        os.Exit(1)
-                }
+		ip := net.ParseIP(Config.SrcIP)
+		if ip == nil {
+			fmt.Println("Invalid srcip set!")
+			fmt.Println(VERSION)
+			os.Exit(1)
+		}
 	}
 
 	Config.Retry_Delay = time.Duration(5) * time.Second
@@ -98,7 +117,9 @@ func createENV() {
 
 func handlepanic() {
 	if a := recover(); a != nil {
-		go checkSocket()
+		if Config.ListenerType == "socket" {
+			go checkSocket()
+		}
 		run()
 	}
 }
@@ -107,30 +128,39 @@ func checkSocket() {
 	defer handlepanic()
 	for {
 		time.Sleep(5 * time.Second)
-		socket := Config.Socket
+		socket := Config.ListenerEndpoint
 		_, err := os.Stat(socket)
 		if err != nil {
+			log.Println("Socket missing, recreating")
 			panic("Socket Missing!")
 		}
 	}
 }
 
 func run() {
-	fname := Config.Socket
-	os.Remove(fname)
+	var listenerType string 
 
-	socket, err := net.Listen("unix", fname)
+	fname := Config.ListenerEndpoint
+	if Config.ListenerType == "socket" {
+		os.Remove(fname)
+		listenerType = "unix"
+	} else if Config.ListenerType == "tcp" {
+		listenerType = "tcp"
+	}
+
+	listener, err := net.Listen(listenerType, fname)
 	if err != nil {
-		fmt.Println(err, "Could not create socket!")
+		fmt.Println(err, "Could not create listener!")
 		fmt.Println(VERSION)
 		os.Exit(1)
 	}
-	defer socket.Close()
+	defer listener.Close()
 	_ = os.Chmod(fname, 0777)
 
 	for {
-		conn, err := socket.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
+			log.Println("Error reading from listener: ", err)
 			time.Sleep(Config.Retry_Delay)
 			continue
 		}
@@ -144,9 +174,11 @@ func handleConn(conn net.Conn) {
 	defer wg.Done()
 	defer conn.Close()
 
+	var wgHTTP sync.WaitGroup
+
 	packets := make(chan []string, 50)
 	wgHTTP.Add(1)
-	go httpSender(packets)
+	go httpSender(packets, &wgHTTP)
 
 	var FSContentType = []byte("protobuf:dnstap.Dnstap")
 	bi := true
@@ -159,11 +191,15 @@ func handleConn(conn net.Conn) {
 	}
 	fs, err := framestream.NewReader(conn, &readerOptions)
 	if err != nil {
+		log.Println("Error creating framestream listener: ", err)
 		return
 	}
 
+	log.Println("Connected to DNSTAP listener")
+
 	buf := make([]byte, BUFFER_SIZE * KILOBYTE)
 
+	var firstRead int
 	var count int
 	var buffer []string
 	ticker := time.NewTicker(Config.Flush_MS)
@@ -194,40 +230,49 @@ mainLoop:
 				buffer = []string{}
 				ticker.Reset(Config.Flush_MS)
 			}
+			if firstRead == 0 {
+				log.Println("Reading data from DNSTAP listener")
+				firstRead++
+			}
 		}
 	}
 	close(packets)
 	wgHTTP.Wait()
 }
 
-func httpSender(packets <-chan []string) {
+func httpSender(packets <-chan []string, wgHTTP *sync.WaitGroup) {
 	defer wgHTTP.Done()
-	dial()
+	httpClient := dial()
 	for packet := range packets {
-		err := call(packet)
+		err := call(packet, httpClient)
 		if err != nil {
+			log.Println("Error sending data", err)
 			time.Sleep(Config.Retry_Delay)
-			dial()
+			httpClient = dial()
 		}
 	}
 }
 
-func dial() {
+func dial() HTTPClient {
+	var httpClient HTTPClient
 	for {
 		hosts, err := getHosts()
 		if err != nil {
+			log.Printf("Could not resolve destination hosts %v,  retrying...", err )
 			time.Sleep(Config.Retry_Delay)
 			continue
 		}
 		uri, err := tryConnect(hosts)
 		if err != nil {
+			log.Println("Could not connect to destination hosts, retrying...")
 			time.Sleep(Config.Retry_Delay)
 			continue
 		}
 		tr := getTransport()
-		url.Client = &http.Client{Transport: &tr}
-		url.Path = uri
-		return
+		httpClient.Client = &http.Client{Transport: &tr}
+		httpClient.Path = uri
+
+		return httpClient 
 	}
 }
 
@@ -242,12 +287,17 @@ func tryConnect(hosts []string) (string, error) {
 		client := &http.Client{Transport: &tr}
 		resp, err := client.Get(uri)
 		if err != nil {
+			log.Println("Error connecting to destination host", collector, err)
 			continue
 		}
 		io.Copy(ioutil.Discard, resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
+			log.Println("Connected to ", collector)
 			return uri, nil
+		} else {
+			log.Println("Error connecting to destination host - invalid status code", collector, resp.StatusCode)
+			continue
 		}
 	}
 	return "", errors.New("Could not connect to any hosts")
@@ -297,20 +347,20 @@ func getHosts() ([]string, error) {
 
 }
 
-func call(packet []string) error {
+func call(packet []string, httpClient HTTPClient) error {
 	method := "POST"
 
-	form := netUrl.Values{}
+	form := url.Values{}
 	for _, frame := range packet {
 		form.Add("data", frame)
 	}
 
-	req, err := http.NewRequest(method, url.Path, strings.NewReader(form.Encode()))
+	req, err := http.NewRequest(method, httpClient.Path, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rsp, err := url.Client.Do(req)
+	rsp, err := httpClient.Client.Do(req)
 	if err != nil {
 		return err
 	}
